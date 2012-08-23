@@ -38,10 +38,8 @@ class Tokenizer():
 
 def main():
     T = Tokenizer()
-    for line in open('tweets.txt').readlines()[200:300]:
-        print line
+    for line in open('tweets.txt').readlines():
         print ' '.join(T.tokenize(line))
-        print
 
 if __name__ == '__main__':
     main()     
