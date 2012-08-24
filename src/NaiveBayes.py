@@ -1,162 +1,255 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 
 import sys
+import getopt
 import os
 import math
+import re
+import string
+import random
+
+import MySQLdb as db
 
 class NaiveBayes:
-  class TrainSplit:
-    """Represents a set of training/testing data. self.train is a list of Examples, as is self.test. 
-    """
+    class TrainSplit:
+        """Represents a set of training/testing data. self.train is a list of Examples, as is self.test. 
+        """
+        def __init__(self):
+            self.train = []
+            self.test = []
+
+    class Example:
+        """Represents a document with a label. klass is 'pos' or 'neg' by convention.
+             words is a list of strings.
+        """
+        def __init__(self):
+            self.klass = ''
+            self.words = []
+            self.content = ''
+
+
     def __init__(self):
-      self.train = []
-      self.test = []
+        """NaiveBayes initialization"""
+        self.FILTER_STOP_WORDS = False
+        self.stopList = set([line.strip() for line in open('english.stop', 'r').readlines()])
+        self.numFolds = 10
+        
+        self.posDict = {}
+        self.negDict = {}
+        self.posExampleNum = 0
+        self.negExampleNum = 0
+        self.posTokenNum = 0
+        self.negTokenNum = 0
 
-  class Example:
-    """Represents a document with a label. klass is 'pos' or 'neg' by convention.
-       words is a list of strings.
-    """
-    def __init__(self):
-      self.klass = ''
-      self.words = []
+        self.priorPosScore = 0.0
+        self.priorNegScore = 0.0
+        ####
+        self.wordScores = {}
+    
+    
+    def classify(self, words):
+        """
+            'words' is a list of words to classify. Return 'pos' or 'neg' classification.
+        """
+        
+        posScore = math.log(1.0 * self.posExampleNum / (self.posExampleNum + self.negExampleNum))
+        negScore = math.log(1.0 * self.negExampleNum / (self.posExampleNum + self.negExampleNum))
+        posTermNum = len(self.posDict)
+        negTermNum = len(self.negDict)
+        
+        for word in words:
+            posScore += math.log(1.0 * (self.posDict.get(word, 0) + 1) / (self.posTokenNum + posTermNum))
+            negScore += math.log(1.0 * (self.negDict.get(word, 0) + 1) / (self.negTokenNum + negTermNum))
+
+        if posScore > negScore: return 'pos'
+        else: return 'neg'
+    
+    def train(self, trainData):
+        
+        for example in trainData:
+            words = example.words
+            if self.FILTER_STOP_WORDS:
+                words = self.filterStopWords(words)
+            self.addExample(example.klass, words)
+        
+        self.priorPosScore = math.log(1.0 * self.posExampleNum / (self.posExampleNum + self.negExampleNum))
+        self.priorNegScore = math.log(1.0 * self.negExampleNum / (self.posExampleNum + self.negExampleNum))
+
+        posTermNum = len(self.posDict)
+        negTermNum = len(self.negDict)
+
+        posScore = 0.0
+        negScore = 0.0
+        for word in self.posDict.keys() + self.negDict.keys():
+            posScore += math.log(1.0 * (self.posDict.get(word, 0) + 1) / (self.posTokenNum + posTermNum))
+            negScore += math.log(1.0 * (self.negDict.get(word, 0) + 1) / (self.negTokenNum + negTermNum))
+        
+            self.wordScores[word] = {}
+            self.wordScores[word]['posScore'] = posScore
+            self.wordScores[word]['negScore'] = negScore
+
+    
+    def addExample(self, klass, words):
+        """
+         * Train your model on an example document with label klass ('pos' or 'neg') and
+         * words, a list of strings.
+         * Returns nothing
+        """
+        if klass == 'pos':
+            self.posExampleNum += 1
+            for word in words:
+                self.posDict[word] = self.posDict.get(word, 0) + 1
+                self.posTokenNum += 1
+        elif klass == 'neg': 
+            self.negExampleNum += 1
+            for word in words:
+                self.negDict[word] = self.negDict.get(word, 0) + 1
+                self.negTokenNum += 1
+    
+    
+    def segmentWords(self, text):
+        """
+         * Splits lines on whitespace for file reading
+        """
+        text = text.lower()
+
+        # reserve these symbols:  : ( )
+        # remove the punctuation gives better accuracy
+        pattern = re.sub(r'[:()]', '', string.punctuation)
+        text = re.sub(r'[%s]' % pattern, '', text)
+        
+        return text.split()
+
+    
+    def buildSplits(self):
+            ################
+        """Builds the splits for training/testing"""
+
+        #databases: OpinionMiningOnTwitter
+        #tables: gold_standard_movie
+        #        gold_standard_person
+        #        twitterdata_movie
+        #        twitterdata_person
+        # gold_standard_movie format: (id, topic, content, polarity, sentiment_expression)
+        #example:('9798541400', 'Shutter Island', "I lied to my girl and told her I haven't seen Shutter Island yet, Now I'll be going to see it for the 2nd time in 1 day!!", 'void', '')
+        # polarity: 'pos' or 'neg' or 'neu' or 'void'
+        # twitterdata_movie 
+        #format: (id, content, topic)
+
+        con = db.connect(host='localhost', user='root', passwd='', db='OpinionMiningOnTwitter')
 
 
-  def __init__(self):
-    """NaiveBayes initialization"""
-    self.numFolds = 10
-    self.posWordsDict = {}
-    self.posWordsDict = {}
-  
-  def classify(self, words):
-    """ TODO
-      'words' is a list of words to classify. Return 'pos' or 'neg' classification.
-    """
-    return 'pos'
-  
-
-  def addExample(self, klass, words):
-    """
-     * TODO
-     * Train your model on an example document with label klass ('pos' or 'neg') and
-     * words, a list of strings.
-     * You should store whatever data structures you use for your classifier 
-     * in the NaiveBayes class.
-     * Returns nothing
-    """
-    if klass == 'pos':
-      for word in words:
-        self.posWordsDict[word] = self.posWordsDict.get(word, 0) + 1
-    elif klass == 'neg':
-      for word in words:
-        self.negWordsDict[word] = self.negWordsDict.get(word, 0) + 1
-
-  
-  
-  def segmentWords(self, s):
-    """
-     * Splits lines on whitespace for file reading
-    """
-    return s.split()
-
-  
-  def trainSplit(self, trainDir):
-    """Takes in a trainDir, returns one TrainSplit with train set."""
-    split = self.TrainSplit()
-    posTrainFileNames = os.listdir('%s/pos/' % trainDir)
-    negTrainFileNames = os.listdir('%s/neg/' % trainDir)
-    for fileName in posTrainFileNames:
-      example = self.Example()
-      example.words = self.readFile('%s/pos/%s' % (trainDir, fileName))
-      example.klass = 'pos'
-      split.train.append(example)
-    for fileName in negTrainFileNames:
-      example = self.Example()
-      example.words = self.readFile('%s/neg/%s' % (trainDir, fileName))
-      example.klass = 'neg'
-      split.train.append(example)
-    return split
-
-  def train(self, split):
-    for example in split.train:
-      words = example.words
-      self.addExample(example.klass, words)
-
-  def crossValidationSplits(self, trainDir):
-    """Returns a lsit of TrainSplits corresponding to the cross validation splits."""
-    splits = [] 
-    posTrainFileNames = os.listdir('%s/pos/' % trainDir)
-    negTrainFileNames = os.listdir('%s/neg/' % trainDir)
-    #for fileName in trainFileNames:
-    for fold in range(0, self.numFolds):
-      split = self.TrainSplit()
-      for fileName in posTrainFileNames:
-        example = self.Example()
-        example.words = self.readFile('%s/pos/%s' % (trainDir, fileName))
-        example.klass = 'pos'
-        if fileName[2] == str(fold):
-          split.test.append(example)
-        else:
-          split.train.append(example)
-      for fileName in negTrainFileNames:
-        example = self.Example()
-        example.words = self.readFile('%s/neg/%s' % (trainDir, fileName))
-        example.klass = 'neg'
-        if fileName[2] == str(fold):
-          split.test.append(example)
-        else:
-          split.train.append(example)
-      splits.append(split)
-    return splits
+        cur = con.cursor(db.cursors.DictCursor)
+        cur.execute('SELECT * from gold_standard_person')
+        rows = cur.fetchall()
+        cur.close()
+        con.close()
 
 
-  def test(self, split):
-    """Returns a list of labels for split.test."""
-    labels = []
-    for example in split.test:
-      words = example.words
-      if self.FILTER_STOP_WORDS:
-        words =  self.filterStopWords(words)
-      guess = self.classify(words)
-      labels.append(guess)
-    return labels
-  
-  def buildSplits(self, args):
-    """Builds the splits for training/testing"""
-    trainData = [] 
-    testData = []
-    splits = []
-    trainDir = args[0]
-  
+        examples = []
+        for row in rows:
+            example = self.Example()
+            example.klass = row['polarity']
+            example.content = row['content']
+            example.words = self.segmentWords(example.content)
+            if example.klass == 'pos' or example.klass == 'neg':
+                examples.append(example)
+        
+
+        splits = []
+        foldSize = int(1.0 * len(examples) / self.numFolds)
+        
+        random.shuffle(examples)
+
+        for i in range(self.numFolds):
+            split = self.TrainSplit()
+            split.test = examples[i*foldSize :i*foldSize+foldSize]
+            split.train = examples[:i*foldSize] + examples[i*foldSize+foldSize:]
+            splits.append(split)
+        return splits
+    
+
+    def filterStopWords(self, words):
+        """Filters stop words."""
+        filtered = []
+        for word in words:
+            if not word in self.stopList and word.strip() != '':
+                filtered.append(word)
+        return filtered
 
 
 
 def main():
-  
-  splits = nb.buildSplits(args)
-  avgAccuracy = 0.0
-  fold = 0
-  for split in splits:
-    classifier = NaiveBayes()
-    accuracy = 0.0
-    for example in split.train:
-      words = example.words
-      if nb.FILTER_STOP_WORDS:
-        words =  classifier.filterStopWords(words)
-      classifier.addExample(example.klass, words)
-  
-    for example in split.test:
-      words = example.words
-      if nb.FILTER_STOP_WORDS:
-        words =  classifier.filterStopWords(words)
-      guess = classifier.classify(words)
-      if example.klass == guess:
-        accuracy += 1.0
+    nb = NaiveBayes()
+    (options, args) = getopt.getopt(sys.argv[1:], 'f')
+    if ('-f','') in options:
+        FILTER_STOP_WORDS = True
+    else:
+        FILTER_STOP_WORDS = False
+    
+    splits = nb.buildSplits()
+    avgAccuracy = 0.0
+    fold = 0
+    for split in splits:
+        classifier = NaiveBayes()
+        classifier.FILTER_STOP_WORDS = FILTER_STOP_WORDS
 
-    accuracy = accuracy / len(split.test)
-    avgAccuracy += accuracy
-    print '[INFO]\tFold %d Accuracy: %f' % (fold, accuracy) 
-    fold += 1
-  avgAccuracy = avgAccuracy / fold
-  print '[INFO]\tAccuracy: %f' % avgAccuracy
+        accuracy = 0.0
+
+        classifier.train(split.train)
+        ''' 
+        for example in split.train:
+            words = example.words
+            if classifier.FILTER_STOP_WORDS:
+                words = classifier.filterStopWords(words)
+            classifier.addExample(example.klass, words)
+        '''
+
+        f = open('debug', 'w')
+        for example in split.test:
+            words = example.words
+            if classifier.FILTER_STOP_WORDS:
+                words = classifier.filterStopWords(words)
+            guess = classifier.classify(words)
+            if example.klass == guess:
+                accuracy += 1.0
+            
+            print >> f, 'gold standard: %s\tclassifier: %s\ntweet content: %s' \
+                         % (example.klass, guess, example.content)
+    
+            print >> f, 'word scores: %s\n' % '\n'.join(['%s:\tpos:%f\tneg:%f' \
+                % (word, classifier.wordScores[word]['posScore'], classifier.wordScores[word]['negScore']) \
+                for word in example.words if word in classifier.wordScores])
+            print >> f
+            print >> f
+
+        f.close()
+
+        f = open('word_scores', 'w')
+        for word in classifier.wordScores:
+            posScore = classifier.wordScores[word]['posScore']
+            negScore = classifier.wordScores[word]['negScore']
+
+            f.write('word: %s' % word)
+            if posScore == negScore:
+                f.write('\tpos=neg')
+            elif posScore > negScore:
+                f.write('\tPOS')
+            else:
+                f.write('\tNEG')
+            f.write('\tposScore: %f\tnegScore: %f' % (posScore, negScore))
+            f.write('\n')
+        f.close()
+
+
+        accuracy = accuracy / len(split.test)
+        avgAccuracy += accuracy
+        print '[INFO]\tFold %d Accuracy: %f' % (fold, accuracy) 
+        fold += 1
+    avgAccuracy = avgAccuracy / fold
+    print '[INFO]\tAccuracy: %f' % avgAccuracy
 
 if __name__ == "__main__":
     main()
